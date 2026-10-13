@@ -1,0 +1,524 @@
+openapi: 3.0.3
+info:
+  title: Workout Tracker API
+  description: |
+    REST API для мобильного приложения трекинга тренировок.
+    Offline-first архитектура с фоновой синхронизацией.
+  version: 1.0.0
+  contact:
+    name: Workout Tracker Team
+
+servers:
+  - url: https://api.workouttracker.example.com/v1
+    description: Production
+  - url: https://staging-api.workouttracker.example.com/v1
+    description: Staging
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      summary: Регистрация пользователя
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: Email уже занят
+
+  /auth/login:
+    post:
+      summary: Аутентификация
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешная аутентификация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Неверные учётные данные
+
+  /workouts:
+    get:
+      summary: Получить список тренировок
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Список тренировок
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWorkouts'
+
+    post:
+      summary: Создать тренировку
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkoutRequest'
+      responses:
+        '201':
+          description: Тренировка создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workout'
+
+  /workouts/{workoutId}:
+    get:
+      summary: Получить тренировку по ID
+      parameters:
+        - name: workoutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Данные тренировки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workout'
+        '404':
+          description: Тренировка не найдена
+
+    put:
+      summary: Обновить тренировку
+      parameters:
+        - name: workoutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkoutRequest'
+      responses:
+        '200':
+          description: Тренировка обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workout'
+
+    delete:
+      summary: Удалить тренировку
+      parameters:
+        - name: workoutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Тренировка удалена
+
+  /exercises:
+    get:
+      summary: Получить список упражнений
+      parameters:
+        - name: muscleGroup
+          in: query
+          schema:
+            type: string
+            enum: [chest, back, legs, shoulders, arms, core]
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Список упражнений
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Exercise'
+
+  /programs:
+    get:
+      summary: Получить программы тренировок
+      responses:
+        '200':
+          description: Список программ
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Program'
+
+    post:
+      summary: Создать программу
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgramRequest'
+      responses:
+        '201':
+          description: Программа создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Program'
+
+  /sync:
+    post:
+      summary: Синхронизация данных (offline-first)
+      description: |
+        Принимает пакет изменений от клиента (outbox).
+        Идемпотентна по Idempotency-Key.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+      responses:
+        '200':
+          description: Синхронизация завершена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResponse'
+
+  /stats/summary:
+    get:
+      summary: Получить статистику пользователя
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [week, month, year, all]
+            default: month
+      responses:
+        '200':
+          description: Статистика
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsSummary'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        name:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    WorkoutRequest:
+      type: object
+      required: [date, exercises]
+      properties:
+        date:
+          type: string
+          format: date
+        notes:
+          type: string
+        exercises:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExerciseSet'
+
+    Workout:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        notes:
+          type: string
+        exercises:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExerciseSet'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        syncStatus:
+          type: string
+          enum: [SYNCED, PENDING, CONFLICT]
+
+    ExerciseSet:
+      type: object
+      properties:
+        exerciseId:
+          type: string
+          format: uuid
+        sets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Set'
+
+    Set:
+      type: object
+      properties:
+        weight:
+          type: number
+        reps:
+          type: integer
+        duration:
+          type: number
+          description: Время в секундах (для кардио)
+
+    Exercise:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        muscleGroup:
+          type: string
+          enum: [chest, back, legs, shoulders, arms, core]
+        description:
+          type: string
+
+    ProgramRequest:
+      type: object
+      required: [name, workouts]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        workouts:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkoutRequest'
+
+    Program:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        workouts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workout'
+
+    PaginatedWorkouts:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workout'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        currentPage:
+          type: integer
+
+    SyncRequest:
+      type: object
+      required: [changes]
+      properties:
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncChange'
+
+    SyncChange:
+      type: object
+      required: [entityType, entityId, operation, data]
+      properties:
+        entityType:
+          type: string
+          enum: [workout, exercise, program]
+        entityId:
+          type: string
+          format: uuid
+        operation:
+          type: string
+          enum: [CREATE, UPDATE, DELETE]
+        data:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+    SyncResponse:
+      type: object
+      properties:
+        synced:
+          type: integer
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncConflict'
+        serverChanges:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncChange'
+
+    SyncConflict:
+      type: object
+      properties:
+        entityType:
+          type: string
+        entityId:
+          type: string
+        serverVersion:
+          type: object
+        clientVersion:
+          type: object
+
+    StatsSummary:
+      type: object
+      properties:
+        totalWorkouts:
+          type: integer
+        totalVolume:
+          type: number
+        period:
+          type: string
+        byMuscleGroup:
+          type: object
+          additionalProperties:
+            type: number
